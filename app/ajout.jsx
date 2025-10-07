@@ -1,17 +1,16 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  TextInput,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
+  Text,
+  TextInput,
   TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
+  View,
 } from "react-native";
-import { initDB, insertReleve } from "../services/Database"; // ✅ ton fichier DB
-
+import { initDB } from "../services/Database"; // ✅ ton fichier DB
 export default function AjoutScreen() {
   const [type, setType] = useState("");
   const [indexVal, setIndexVal] = useState("");

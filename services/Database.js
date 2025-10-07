@@ -69,3 +69,39 @@ export const fetchReleves = async (onSuccess, onError) => {
     onError?.(error);
   }
 };
+
+export const deleteReleve = async (id, onSuccess, onError) => {
+  try {
+    releves = releves.filter((r) => r.id !== id);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(releves));
+    console.log("✅ Relevé supprimé avec succès !");
+    onSuccess?.();
+  } catch (error) {
+    console.error("❌ Erreur suppression relevé:", error);
+    onError?.(error);
+  }
+};
+
+
+export const updateReleve = async (id, type, index_val, date, onSuccess, onError) => {
+  try {
+    const stored = await AsyncStorage.getItem(STORAGE_KEY);
+    let releves = stored ? JSON.parse(stored) : [];
+
+    const index = releves.findIndex(r => r.id === id);
+    if (index !== -1) {
+      releves[index] = { ...releves[index], type, index_val, date };
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(releves));
+      console.log("✅ Relevé modifié avec succès !");
+      onSuccess?.();
+    } else {
+      throw new Error("Relevé non trouvé");
+    }
+  } catch (error) {
+    console.error("❌ Erreur modification relevé:", error);
+    onError?.(error);
+  }
+};
+
+
+

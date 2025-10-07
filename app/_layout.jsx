@@ -1,7 +1,14 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useEffect } from "react";
+import {initDB} from "../services/Database";
 
 export default function RootLayout() {
+  useEffect(() => {
+    initDB();
+  }, []);
+
+
   return (
     <Tabs
       screenOptions={{

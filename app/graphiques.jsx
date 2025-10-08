@@ -2,12 +2,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import {
+  Animated,
   Dimensions,
+  LayoutAnimation,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
+  UIManager,
   useColorScheme,
   View,
 } from 'react-native';
@@ -22,6 +26,11 @@ import BaseModal from '../components/Modal/BaseModal';
 import { AnalyticsService } from '../services/AnalyticsService';
 import { ChartService } from '../services/ChartService';
 import { fetchReleves } from '../services/storageService';
+
+// Activer les animations de layout pour Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const { width } = Dimensions.get('window');
 
@@ -66,6 +75,61 @@ const PERIODS = {
   YEAR: 'year'
 };
 
+// Composant Accordéon réutilisable
+const AccordionSection = ({ 
+  title, 
+  isExpanded, 
+  onToggle, 
+  children, 
+  icon 
+}) => {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme] || Colors.light;
+  const rotateAnim = useState(new Animated.Value(0))[0];
+
+  const toggleAnimation = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    onToggle();
+    
+    Animated.timing(rotateAnim, {
+      toValue: isExpanded ? 0 : 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  }, [isExpanded, onToggle, rotateAnim]);
+
+  const rotate = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '180deg']
+  });
+
+  return (
+    <View style={[styles.accordionContainer, { backgroundColor: colors.card }]}>
+      <TouchableOpacity
+        style={styles.accordionHeader}
+        onPress={toggleAnimation}
+        activeOpacity={0.7}
+      >
+        <View style={styles.accordionTitle}>
+          <Ionicons name={icon} size={18} color={colors.primary} />
+          <Text style={[styles.accordionTitleText, { color: colors.text }]}>
+            {title}
+          </Text>
+        </View>
+        <Animated.View style={{ transform: [{ rotate }] }}>
+          <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+        </Animated.View>
+      </TouchableOpacity>
+      
+      {isExpanded && (
+        <View style={styles.accordionContent}>
+          {children}
+        </View>
+      )}
+    </View>
+  );
+};
+
 export default function Graphiques() {
   const colorScheme = useColorScheme();
   const colors = useMemo(() => Colors[colorScheme] || Colors.light, [colorScheme]);
@@ -79,6 +143,12 @@ export default function Graphiques() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [analysis, setAnalysis] = useState({ eau: null, electricite: null });
+  
+  // États pour les accordéons
+  const [expandedSections, setExpandedSections] = useState({
+    filters: false,
+    stats: true
+  });
 
   // Mémoized values
   const hasData = useMemo(() => 
@@ -154,6 +224,14 @@ export default function Graphiques() {
 
   const closeExportModal = useCallback(() => {
     setExportModal({ visible: false, chart: null, title: '' });
+  }, []);
+
+  const toggleSection = useCallback((section) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
   }, []);
 
   const getPeriodLabel = useCallback((period) => {
@@ -423,7 +501,7 @@ export default function Graphiques() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
+      {/* Header fixe */}
       <View style={[styles.header, { backgroundColor: colors.card }]}>
         <View style={styles.headerContent}>
           <View style={styles.headerText}>
@@ -444,60 +522,9 @@ export default function Graphiques() {
             icon="refresh-outline"
           />
         </View>
-
-        {/* Sélecteurs */}
-        <View style={styles.selectorsContainer}>
-          <Text style={[styles.selectorLabel, { color: colors.text }]}>Période:</Text>
-          {renderPeriodSelector}
-          
-          <Text style={[styles.selectorLabel, { color: colors.text }]}>Type de graphique:</Text>
-          {renderChartTypeSelector}
-          
-          <Text style={[styles.selectorLabel, { color: colors.text }]}>Données:</Text>
-          {renderDataTypeSelector}
-        </View>
-
-        {/* Stats rapides */}
-        {hasData && (
-          <View style={[styles.statsContainer, { backgroundColor: colors.primary + '15' }]}>
-            <View style={styles.statItem}>
-              <Ionicons name="water-outline" size={16} color={colors.primary} />
-              <Text style={[styles.statNumber, { color: colors.primary }]}>
-                {dataEau.length}
-              </Text>
-              <Text style={[styles.statLabel, { color: colors.text }]}>
-                Relevés eau
-              </Text>
-            </View>
-            
-            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-            
-            <View style={styles.statItem}>
-              <Ionicons name="flash-outline" size={16} color={colors.primary} />
-              <Text style={[styles.statNumber, { color: colors.primary }]}>
-                {dataElectricite.length}
-              </Text>
-              <Text style={[styles.statLabel, { color: colors.text }]}>
-                Relevés élec.
-              </Text>
-            </View>
-            
-            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-            
-            <View style={styles.statItem}>
-              <Ionicons name="stats-chart-outline" size={16} color={colors.primary} />
-              <Text style={[styles.statNumber, { color: colors.primary }]}>
-                {totalReleves}
-              </Text>
-              <Text style={[styles.statLabel, { color: colors.text }]}>
-                Total
-              </Text>
-            </View>
-          </View>
-        )}
       </View>
 
-      {/* Contenu des graphiques */}
+      {/* Contenu scrollable */}
       <ScrollView 
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
@@ -510,6 +537,72 @@ export default function Graphiques() {
           />
         }
       >
+        {/* Accordéon des filtres */}
+        <AccordionSection
+          title="Filtres et Options"
+          icon="options-outline"
+          isExpanded={expandedSections.filters}
+          onToggle={() => toggleSection('filters')}
+        >
+          <View style={styles.selectorsContainer}>
+            <Text style={[styles.selectorLabel, { color: colors.text }]}>Période:</Text>
+            {renderPeriodSelector}
+            
+            <Text style={[styles.selectorLabel, { color: colors.text }]}>Type de graphique:</Text>
+            {renderChartTypeSelector}
+            
+            <Text style={[styles.selectorLabel, { color: colors.text }]}>Données:</Text>
+            {renderDataTypeSelector}
+          </View>
+        </AccordionSection>
+
+        {/* Accordéon des statistiques */}
+        {hasData && (
+          <AccordionSection
+            title="Statistiques Globales"
+            icon="stats-chart-outline"
+            isExpanded={expandedSections.stats}
+            onToggle={() => toggleSection('stats')}
+          >
+            <View style={[styles.statsContainer, { backgroundColor: colors.primary + '15' }]}>
+              <View style={styles.statItem}>
+                <Ionicons name="water-outline" size={16} color={colors.primary} />
+                <Text style={[styles.statNumber, { color: colors.primary }]}>
+                  {dataEau.length}
+                </Text>
+                <Text style={[styles.statLabel, { color: colors.text }]}>
+                  Relevés eau
+                </Text>
+              </View>
+              
+              <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+              
+              <View style={styles.statItem}>
+                <Ionicons name="flash-outline" size={16} color={colors.primary} />
+                <Text style={[styles.statNumber, { color: colors.primary }]}>
+                  {dataElectricite.length}
+                </Text>
+                <Text style={[styles.statLabel, { color: colors.text }]}>
+                  Relevés élec.
+                </Text>
+              </View>
+              
+              <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+              
+              <View style={styles.statItem}>
+                <Ionicons name="stats-chart-outline" size={16} color={colors.primary} />
+                <Text style={[styles.statNumber, { color: colors.primary }]}>
+                  {totalReleves}
+                </Text>
+                <Text style={[styles.statLabel, { color: colors.text }]}>
+                  Total
+                </Text>
+              </View>
+            </View>
+          </AccordionSection>
+        )}
+
+        {/* Graphiques - TOUJOURS VISIBLES */}
         {renderCharts}
 
         {/* Section d'information */}
@@ -561,7 +654,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingTop: 15,
-    paddingBottom: 10,
+    paddingBottom: 15,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -572,7 +665,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 16,
   },
   headerText: {
     flex: 1,
@@ -587,9 +679,45 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 20,
   },
+  scrollView: {
+    flex: 1,
+  },
+  // Styles pour l'accordéon
+  accordionContainer: {
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  accordionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  accordionTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  accordionTitleText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  accordionContent: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  // Styles existants
   selectorsContainer: {
     gap: 12,
-    marginBottom: 16,
   },
   selectorLabel: {
     fontSize: 14,
@@ -639,15 +767,13 @@ const styles = StyleSheet.create({
     width: 1,
     marginHorizontal: 8,
   },
-  scrollView: {
-    flex: 1,
-  },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
     paddingTop: 60,
+    minHeight: 300,
   },
   emptyTitle: {
     fontSize: 20,

@@ -243,105 +243,117 @@ export default function RootLayout() {
   }
 
   return (
-    <Animated.View 
-      style={[
-        styles.container,
-        { 
-          backgroundColor: colors.background,
-          opacity: themeFadeAnim 
-        }
-      ]}
+  <Animated.View 
+    style={[
+      styles.container,
+      { 
+        backgroundColor: colors.background,
+        opacity: themeFadeAnim 
+      }
+    ]}
+  >
+    <StatusBar 
+      barStyle={isDarkMode ? "light-content" : "dark-content"}
+      backgroundColor={colors.primary}
+      animated={true}
+    />
+    
+    <Tabs
+      screenOptions={{
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textSecondary,
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            backgroundColor: colors.tabBar,
+            borderTopColor: colors.border,
+          }
+        ],
+        tabBarLabelStyle: styles.tabBarLabel,
+        headerStyle: [
+          styles.header,
+          {
+            backgroundColor: colors.primary,
+            shadowColor: colors.primary,
+          }
+        ],
+        headerTitleStyle: [styles.headerTitle, { color: colors.text }],
+        headerTitleAlign: 'center',
+        headerShadowVisible: true,
+        headerTintColor: colors.text,
+        headerBackground: HeaderBackground,
+      }}
     >
-      <StatusBar 
-        barStyle={isDarkMode ? "light-content" : "dark-content"}
-        backgroundColor={colors.primary}
-        animated={true}
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "Accueil",
+          tabBarIcon: ({ focused }) => getTabBarIcon("home-outline", focused),
+          headerTitle: () => (
+            <CustomHeaderTitle title="EcoConsommation" showLogo={true} />
+          ),
+        }}
       />
       
-      <Tabs
-        screenOptions={{
-          tabBarActiveTintColor: colors.primary,
-          tabBarInactiveTintColor: colors.textSecondary,
-          tabBarStyle: [
-            styles.tabBar,
-            {
-              backgroundColor: colors.tabBar,
-              borderTopColor: colors.border,
-            }
-          ],
-          tabBarLabelStyle: styles.tabBarLabel,
-          headerStyle: [
-            styles.header,
-            {
-              backgroundColor: colors.primary,
-              shadowColor: colors.primary,
-            }
-          ],
-          headerTitleStyle: [styles.headerTitle, { color: colors.text }],
-          headerTitleAlign: 'center',
-          headerShadowVisible: true,
-          headerTintColor: colors.text,
-          headerBackground: HeaderBackground,
+      <Tabs.Screen
+        name="historique"
+        options={{
+          title: "Historique",
+          tabBarIcon: ({ focused }) => getTabBarIcon("time-outline", focused),
+          headerTitle: () => (
+            <CustomHeaderTitle title="Mes Relevés" />
+          ),
         }}
-      >
-        <Tabs.Screen
-          name="index"
-          options={{
-            title: "Tableau de bord",
-            tabBarIcon: ({ focused }) => getTabBarIcon("home-outline", focused),
-            headerTitle: () => (
-              <CustomHeaderTitle title="EcoConsommation" showLogo={true} />
-            ),
-          }}
-        />
-        
-        <Tabs.Screen
-          name="historique"
-          options={{
-            title: "Historique",
-            tabBarIcon: ({ focused }) => getTabBarIcon("time-outline", focused),
-            headerTitle: () => (
-              <CustomHeaderTitle title="Mes Relevés" />
-            ),
-          }}
-        />
-        
-        <Tabs.Screen
-          name="graphiques"
-          options={{
-            title: "Graphiques",
-            tabBarIcon: ({ focused }) => getTabBarIcon("bar-chart-outline", focused),
-            headerTitle: () => (
-              <CustomHeaderTitle title="Analyses" />
-            ),
-          }}
-        />
-        
-        <Tabs.Screen
-          name="parametres"
-          options={{
-            title: "Paramètres",
-            tabBarIcon: ({ focused }) => getTabBarIcon("settings-outline", focused),
-            headerTitle: () => (
-              <CustomHeaderTitle title="Paramètres" />
-            ),
-            headerRight: ThemeToggleButton,
-          }}
-        />
-        
-        <Tabs.Screen
-          name="ajout"
-          options={{
-            title: "Ajouter",
-            tabBarButton: () => null,
-            headerTitle: () => (
-              <CustomHeaderTitle title="Nouveau Relevé" />
-            ),
-          }}
-        />
-      </Tabs>
-    </Animated.View>
-  );
+      />
+      
+      <Tabs.Screen
+        name="graphiques"
+        options={{
+          title: "Graphiques",
+          tabBarIcon: ({ focused }) => getTabBarIcon("bar-chart-outline", focused),
+          headerTitle: () => (
+            <CustomHeaderTitle title="Visualisations" />
+          ),
+        }}
+      />
+      
+      {/* NOUVEL ONGLET ANALYTICS */}
+      <Tabs.Screen
+        name="analytics"
+        options={{
+          title: "Analyses",
+          tabBarIcon: ({ focused }) => getTabBarIcon("stats-chart-outline", focused),
+          headerTitle: () => (
+            <CustomHeaderTitle title="Analyses Avancées" />
+          ),
+        }}
+      />
+      
+      <Tabs.Screen
+        name="parametres"
+        options={{
+          title: "Paramètres",
+          tabBarIcon: ({ focused }) => getTabBarIcon("settings-outline", focused),
+          headerTitle: () => (
+            <CustomHeaderTitle title="Paramètres" />
+          ),
+          headerRight: ThemeToggleButton,
+        }}
+      />
+      
+      <Tabs.Screen
+        name="ajout"
+        options={{
+          title: "Ajouter",
+          tabBarButton: () => null,
+          headerTitle: () => (
+            <CustomHeaderTitle title="Nouveau Relevé" />
+          ),
+        }}
+      />
+    </Tabs>
+  </Animated.View>
+);
 }
 
 const styles = StyleSheet.create({

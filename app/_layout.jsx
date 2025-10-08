@@ -242,7 +242,9 @@ export default function RootLayout() {
     );
   }
 
-  return (
+  // ... (tout le code existant reste inchangé jusqu'au retour du composant)
+
+return (
   <Animated.View 
     style={[
       styles.container,
@@ -325,6 +327,18 @@ export default function RootLayout() {
           tabBarIcon: ({ focused }) => getTabBarIcon("stats-chart-outline", focused),
           headerTitle: () => (
             <CustomHeaderTitle title="Analyses Avancées" />
+          ),
+        }}
+      />
+      
+      {/* NOUVEL ONGLET FACTURATION */}
+      <Tabs.Screen
+        name="facturation"
+        options={{
+          title: "Facturation",
+          tabBarIcon: ({ focused }) => getTabBarIcon("cash-outline", focused),
+          headerTitle: () => (
+            <CustomHeaderTitle title="Estimation de Facture" />
           ),
         }}
       />

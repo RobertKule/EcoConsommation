@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Animated,
@@ -18,6 +18,7 @@ import AppPreferences from "../components/Settings/AppPreferences";
 import ProfileSettings from "../components/Settings/ProfileSettings";
 import SettingsItem from "../components/Settings/SettingsItem";
 import SettingsSection from "../components/Settings/SettingsSection";
+import { PriceConfigService } from "../services/PriceConfigService";
 import { fetchReleves } from "../services/storageService";
 
 // Couleurs pour les thèmes
@@ -53,6 +54,7 @@ export default function Parametres() {
   const [modalVisible, setModalVisible] = useState(false);
   const [modalType, setModalType] = useState("");
   const [profile, setProfile] = useState(null);
+  const [priceConfig, setPriceConfig] = useState(null);
 
   // Animations
   const fadeAnim = useState(new Animated.Value(0))[0];
@@ -60,10 +62,11 @@ export default function Parametres() {
 
   useEffect(() => {
     loadProfile();
+    loadPriceConfig();
     startAnimations();
   }, []);
 
-  const startAnimations = () => {
+  const startAnimations = useCallback(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -76,7 +79,7 @@ export default function Parametres() {
         useNativeDriver: true,
       }),
     ]).start();
-  };
+  }, [fadeAnim, slideAnim]);
 
   const loadProfile = async () => {
     try {
@@ -89,6 +92,15 @@ export default function Parametres() {
     }
   };
 
+  const loadPriceConfig = async () => {
+    try {
+      const config = await PriceConfigService.loadPriceConfig();
+      setPriceConfig(config);
+    } catch (error) {
+      console.error("Erreur chargement config prix:", error);
+    }
+  };
+
   const openModal = (type) => {
     setModalType(type);
     setModalVisible(true);
@@ -97,6 +109,10 @@ export default function Parametres() {
   const closeModal = () => {
     setModalVisible(false);
     setModalType("");
+    // Recharger la config après fermeture du modal de tarifs
+    if (modalType === "estimation") {
+      loadPriceConfig();
+    }
   };
 
   const handleResetData = () => {
@@ -170,15 +186,12 @@ export default function Parametres() {
 
   const convertToCSV = (releves) => {
     const headers = "\uFEFFDate;Type;Index;Unité\n";
-    
     const rows = releves.map(releve => {
       const date = new Date(releve.date);
       const formattedDate = date.toLocaleDateString('fr-FR');
       const unite = releve.type === "Eau" ? "L" : "kWh";
-      
       return `${formattedDate};${releve.type};${releve.index_val};${unite}`;
     }).join("\n");
-    
     return headers + rows;
   };
 
@@ -260,89 +273,99 @@ Développé avec React Native & Expo`,
             }
           ]}
         >
-          // Gardez les titres avec émojis mais remplacez seulement les icônes des SettingsItem
-<SettingsSection title="👤 Profil & Compte" colors={colors}>
-  <SettingsItem
-    title="Mon profil"
-    subtitle={profile?.nom || "Complétez votre profil"}
-    icon={<Ionicons name="person" size={20} color={colors.primary} />}
-    onPress={() => openModal("profile")}
-    colors={colors}
-  />
-  <SettingsItem
-    title="Préférences de l'application"
-    subtitle="Personnaliser l'application"
-    icon={<Ionicons name="settings" size={20} color={colors.primary} />}
-    onPress={() => openModal("preferences")}
-    colors={colors}
-  />
-</SettingsSection>
+          <SettingsSection title="👤 Profil & Compte" colors={colors}>
+            <SettingsItem
+              title="Mon profil"
+              subtitle={profile?.nom || "Complétez votre profil"}
+              icon={<Ionicons name="person" size={20} color={colors.primary} />}
+              onPress={() => openModal("profile")}
+              colors={colors}
+            />
+            <SettingsItem
+              title="Préférences de l'application"
+              subtitle="Personnaliser l'application"
+              icon={<Ionicons name="settings" size={20} color={colors.primary} />}
+              onPress={() => openModal("preferences")}
+              colors={colors}
+            />
+          </SettingsSection>
 
-<SettingsSection title="📊 Consommation" colors={colors}>
-  <SettingsItem
-    title="Configuration des prix"
-    subtitle="Définir les tarifs eau/électricité"
-    icon={<Ionicons name="cash" size={20} color={colors.primary} />}
-    onPress={() => openModal("estimation")}
-    colors={colors}
-  />
-  <SettingsItem
-    title="Exporter les données"
-    subtitle="Télécharger en format CSV"
-    icon={<Ionicons name="download" size={20} color={colors.primary} />}
-    onPress={handleExportData}
-    colors={colors}
-  />
-  <SettingsItem
-    title="Seuils d'alerte"
-    subtitle="Configurer les limites de consommation"
-    icon={<Ionicons name="notifications" size={20} color={colors.primary} />}
-    onPress={() => console.log("Alert thresholds")}
-    colors={colors}
-  />
-</SettingsSection>
+          {/* Section Facturation & Estimation */}
+          <SettingsSection title="💰 Facturation & Estimation" colors={colors}>
+            <SettingsItem
+              title="Configuration des prix"
+              subtitle={`Eau: ${priceConfig?.Eau ? `${(priceConfig.Eau * 1000).toFixed(2)} €/m³` : '...'} • Élec: ${priceConfig?.Électricité ? `${priceConfig.Électricité} €/kWh` : '...'}`}
+              icon={<Ionicons name="cash" size={20} color={colors.primary} />}
+              onPress={() => openModal("estimation")}
+              colors={colors}
+            />
+            <SettingsItem
+              title="Budget mensuel"
+              subtitle={priceConfig ? `Limite: ${priceConfig.budgetMensuel} €` : '...'}
+              icon={<Ionicons name="wallet" size={20} color={colors.primary} />}
+              onPress={() => openModal("estimation")}
+              colors={colors}
+            />
+            <SettingsItem
+              title="Seuils d'alerte"
+              subtitle="Configurer les limites de consommation"
+              icon={<Ionicons name="notifications" size={20} color={colors.primary} />}
+              onPress={() => console.log("Alert thresholds")}
+              colors={colors}
+            />
+          </SettingsSection>
 
-<SettingsSection title="💡 Support & Aide" colors={colors}>
-  <SettingsItem
-    title="Centre d'aide"
-    subtitle="FAQ et tutoriels"
-    icon={<Ionicons name="help-circle" size={20} color={colors.primary} />}
-    onPress={() => console.log("Help center")}
-    colors={colors}
-  />
-  <SettingsItem
-    title="Contactez-nous"
-    subtitle="Support technique"
-    icon={<Ionicons name="mail" size={20} color={colors.primary} />}
-    onPress={() => console.log("Contact us")}
-    colors={colors}
-  />
-  <SettingsItem
-    title="À propos"
-    subtitle="Informations sur l'application"
-    icon={<Ionicons name="information-circle" size={20} color={colors.primary} />}
-    onPress={() => openModal("about")}
-    colors={colors}
-  />
-</SettingsSection>
+          <SettingsSection title="📊 Consommation" colors={colors}>
+            <SettingsItem
+              title="Exporter les données"
+              subtitle="Télécharger en format CSV"
+              icon={<Ionicons name="download" size={20} color={colors.primary} />}
+              onPress={handleExportData}
+              colors={colors}
+            />
+          </SettingsSection>
 
-<SettingsSection title="⚡ Actions" colors={colors}>
-  <SettingsItem
-    title="Réinitialiser les données"
-    subtitle="Supprimer tous les relevés"
-    icon={<Ionicons name="trash" size={20} color={colors.error} />}
-    onPress={handleResetData}
-    destructive
-    colors={colors}
-  />
-  <SettingsItem
-    title="Mettre à jour l'application"
-    subtitle="Vérifier les mises à jour"
-    icon={<Ionicons name="refresh" size={20} color={colors.primary} />}
-    onPress={() => console.log("Check updates")}
-    colors={colors}
-  />
-</SettingsSection>
+          <SettingsSection title="💡 Support & Aide" colors={colors}>
+            <SettingsItem
+              title="Centre d'aide"
+              subtitle="FAQ et tutoriels"
+              icon={<Ionicons name="help-circle" size={20} color={colors.primary} />}
+              onPress={() => console.log("Help center")}
+              colors={colors}
+            />
+            <SettingsItem
+              title="Contactez-nous"
+              subtitle="Support technique"
+              icon={<Ionicons name="mail" size={20} color={colors.primary} />}
+              onPress={() => console.log("Contact us")}
+              colors={colors}
+            />
+            <SettingsItem
+              title="À propos"
+              subtitle="Informations sur l'application"
+              icon={<Ionicons name="information-circle" size={20} color={colors.primary} />}
+              onPress={() => openModal("about")}
+              colors={colors}
+            />
+          </SettingsSection>
+
+          <SettingsSection title="⚡ Actions" colors={colors}>
+            <SettingsItem
+              title="Réinitialiser les données"
+              subtitle="Supprimer tous les relevés"
+              icon={<Ionicons name="trash" size={20} color={colors.error} />}
+              onPress={handleResetData}
+              destructive
+              colors={colors}
+            />
+            <SettingsItem
+              title="Mettre à jour l'application"
+              subtitle="Vérifier les mises à jour"
+              icon={<Ionicons name="refresh" size={20} color={colors.primary} />}
+              onPress={() => console.log("Check updates")}
+              colors={colors}
+            />
+          </SettingsSection>
         </Animated.View>
 
         {/* Informations version */}
@@ -416,18 +439,6 @@ const styles = StyleSheet.create({
   },
   sectionContainer: {
     marginBottom: 24,
-  },
-  // Styles pour les sections (si votre SettingsSection a besoin de styles spécifiques)
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 16,
-    paddingHorizontal: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
   },
   footer: {
     paddingHorizontal: 20,

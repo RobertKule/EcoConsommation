@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -11,7 +11,7 @@ import {
   View,
   useColorScheme
 } from "react-native";
-import { initDB } from "../services/Database";
+import { getStorageMode, initDB } from "../services/storageService";
 
 // Couleurs pour les thèmes
 const Colors = {
@@ -47,8 +47,10 @@ const Colors = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme] || Colors.light;
+  const colors = useMemo(() => Colors[colorScheme] || Colors.light, [colorScheme]);
   const [isDarkMode, setIsDarkMode] = useState(colorScheme === 'dark');
+  const [dbInitialized, setDbInitialized] = useState(false);
+  const [dbError, setDbError] = useState(null);
   
   // Animations pour les tabs
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
@@ -57,37 +59,35 @@ export default function RootLayout() {
   // Animation pour le changement de thème
   const themeFadeAnim = useRef(new Animated.Value(1)).current;
 
-  useEffect(() => {
-    initDB();
-    startTabAnimation();
+  // Initialisation de la base de données avec gestion d'erreur
+  const initializeApp = useCallback(async () => {
+    try {
+      console.log('🔄 Initialisation de la base de données...');
+      await initDB();
+      setDbInitialized(true);
+      setDbError(null);
+      
+      const storageMode = getStorageMode();
+      console.log(`✅ Base initialisée (${storageMode})`);
+    } catch (error) {
+      console.error('❌ Erreur initialisation base:', error);
+      setDbError(error.message);
+      setDbInitialized(true); // On laisse quand même l'app se lancer
+    }
   }, []);
 
   useEffect(() => {
-    // Animation lors du changement de thème
-    Animated.sequence([
-      Animated.timing(themeFadeAnim, {
-        toValue: 0.5,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-      Animated.timing(themeFadeAnim, {
-        toValue: 1,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [colorScheme]);
+    initializeApp();
+    startTabAnimation();
+  }, [initializeApp]);
 
-  const toggleDarkMode = () => {
-    setIsDarkMode(!isDarkMode);
-  };
-
-  const startTabAnimation = () => {
+  const startTabAnimation = useCallback(() => {
     Animated.parallel([
       Animated.timing(scaleAnim, {
         toValue: 1,
         duration: 600,
         easing: Easing.out(Easing.back(1.2)),
+        useNativeDriver: true,
         useNativeDriver: true,
       }),
       Animated.timing(rotateAnim, {
@@ -95,11 +95,36 @@ export default function RootLayout() {
         duration: 800,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
+        useNativeDriver: true,
       }),
     ]).start();
-  };
+  }, [scaleAnim, rotateAnim]);
 
-  const getTabBarIcon = (name, focused) => {
+  // Animation du changement de thème
+  useEffect(() => {
+    const themeAnimation = Animated.sequence([
+      Animated.timing(themeFadeAnim, {
+        toValue: 0.3,
+        duration: 100,
+        useNativeDriver: true,
+        useNativeDriver: true,
+      }),
+      Animated.timing(themeFadeAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+        useNativeDriver: true,
+      }),
+    ]);
+
+    themeAnimation.start();
+  }, [colorScheme, themeFadeAnim]);
+
+  const toggleDarkMode = useCallback(() => {
+    setIsDarkMode(prev => !prev);
+  }, []);
+
+  const getTabBarIcon = useCallback((name, focused) => {
     const rotate = rotateAnim.interpolate({
       inputRange: [0, 1],
       outputRange: ['0deg', '360deg'],
@@ -120,9 +145,9 @@ export default function RootLayout() {
         />
       </Animated.View>
     );
-  };
+  }, [scaleAnim, rotateAnim, colors]);
 
-  const HeaderBackground = () => (
+  const HeaderBackground = useCallback(() => (
     <Animated.View 
       style={[
         styles.headerBackground,
@@ -132,11 +157,14 @@ export default function RootLayout() {
         }
       ]}
     >
-      <View style={[styles.headerGradient, { backgroundColor: colors.primary }]} />
+      <View style={[styles.headerGradient, { 
+        backgroundColor: colors.primary,
+        opacity: 0.9,
+      }]} />
     </Animated.View>
-  );
+  ), [colors.primary, themeFadeAnim]);
 
-  const CustomHeaderTitle = ({ title, showLogo = false }) => (
+  const CustomHeaderTitle = useCallback(({ title, showLogo = false }) => (
     <Animated.View 
       style={[
         styles.headerTitleContainer,
@@ -152,7 +180,67 @@ export default function RootLayout() {
         {title}
       </Text>
     </Animated.View>
-  );
+  ), [colors.text, themeFadeAnim]);
+
+  const ThemeToggleButton = useCallback(() => (
+    <TouchableOpacity 
+      style={[
+        styles.themeToggle,
+        { backgroundColor: colors.text + '15' } // 15 = ~10% opacity en hex
+      ]}
+      onPress={toggleDarkMode}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+    >
+      <Ionicons 
+        name={isDarkMode ? "sunny-outline" : "moon-outline"} 
+        size={22} 
+        color={colors.text} 
+      />
+    </TouchableOpacity>
+  ), [isDarkMode, colors.text, toggleDarkMode]);
+
+  // Écran de chargement pendant l'initialisation
+  if (!dbInitialized) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+        <Animated.View style={[styles.loadingContent, { opacity: themeFadeAnim }]}>
+          <View style={styles.loadingAnimation}>
+            <Ionicons name="water" size={48} color={colors.primary} />
+            <Ionicons name="flash" size={48} color={colors.secondary} />
+          </View>
+          <Text style={[styles.loadingText, { color: colors.text }]}>
+            EcoConsommation
+          </Text>
+          <Text style={[styles.loadingSubtext, { color: colors.textSecondary }]}>
+            Initialisation en cours...
+          </Text>
+        </Animated.View>
+      </View>
+    );
+  }
+
+  // Écran d'erreur si l'initialisation a échoué
+  if (dbError) {
+    return (
+      <View style={[styles.errorContainer, { backgroundColor: colors.background }]}>
+        <Animated.View style={[styles.errorContent, { opacity: themeFadeAnim }]}>
+          <Ionicons name="alert-circle" size={64} color={colors.error} />
+          <Text style={[styles.errorTitle, { color: colors.text }]}>
+            Erreur d'initialisation
+          </Text>
+          <Text style={[styles.errorText, { color: colors.textSecondary }]}>
+            {dbError}
+          </Text>
+          <TouchableOpacity 
+            style={[styles.retryButton, { backgroundColor: colors.primary }]}
+            onPress={initializeApp}
+          >
+            <Text style={styles.retryButtonText}>Réessayer</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
+    );
+  }
 
   return (
     <Animated.View 
@@ -167,6 +255,7 @@ export default function RootLayout() {
       <StatusBar 
         barStyle={isDarkMode ? "light-content" : "dark-content"}
         backgroundColor={colors.primary}
+        animated={true}
       />
       
       <Tabs
@@ -192,7 +281,7 @@ export default function RootLayout() {
           headerTitleAlign: 'center',
           headerShadowVisible: true,
           headerTintColor: colors.text,
-          headerBackground: () => <HeaderBackground />,
+          headerBackground: HeaderBackground,
         }}
       >
         <Tabs.Screen
@@ -236,18 +325,7 @@ export default function RootLayout() {
             headerTitle: () => (
               <CustomHeaderTitle title="Paramètres" />
             ),
-            headerRight: () => (
-              <TouchableOpacity 
-                style={styles.themeToggle}
-                onPress={toggleDarkMode}
-              >
-                <Ionicons 
-                  name={isDarkMode ? "sunny" : "moon"} 
-                  size={22} 
-                  color={colors.text} 
-                />
-              </TouchableOpacity>
-            ),
+            headerRight: ThemeToggleButton,
           }}
         />
         
@@ -269,6 +347,57 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingContent: {
+    alignItems: 'center',
+    gap: 20,
+  },
+  loadingAnimation: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  loadingSubtext: {
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorContent: {
+    alignItems: 'center',
+    gap: 16,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  errorText: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  retryButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   tabBar: {
     borderTopWidth: 1,
@@ -303,7 +432,6 @@ const styles = StyleSheet.create({
   },
   headerGradient: {
     flex: 1,
-    opacity: 0.9,
   },
   headerTitleContainer: {
     flexDirection: 'row',
@@ -319,7 +447,7 @@ const styles = StyleSheet.create({
   },
   themeToggle: {
     marginRight: 16,
-    padding: 4,
+    padding: 8,
     borderRadius: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },

@@ -16,7 +16,7 @@ import AppButton from "../components/Button/AppButton";
 import BaseModal from "../components/Modal/BaseModal";
 import ReleveForm from "../components/Releve/ReleveForm";
 import { ReleveItemCompact } from "../components/Releve/ReleveItem";
-import { deleteReleve, fetchReleves, insertReleve, updateReleve } from "../services/Database";
+import { deleteReleve, fetchReleves, insertReleve, updateReleve } from "../services/storageService";
 
 const { width } = Dimensions.get('window');
 

@@ -14,8 +14,7 @@ import {
 import AppButton from "../components/Button/AppButton";
 import EstimationCard from "../components/Estimation/EstimationCard";
 import LoadingScreen from "../components/LoadingScreen";
-import { fetchReleves } from "../services/Database";
-import { EstimationService } from "../services/EstimationService";
+import { EstimationService, fetchReleves } from "../services/storageService";
 
 const { width } = Dimensions.get('window');
 

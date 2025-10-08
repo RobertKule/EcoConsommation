@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -15,7 +15,7 @@ import ChartContainer from "../components/Charts/ChartContainer";
 import ChartSelector from "../components/Charts/ChartSelector";
 import LoadingScreen from "../components/LoadingScreen";
 import BaseModal from "../components/Modal/BaseModal";
-import { fetchReleves } from "../services/Database";
+import { fetchReleves } from "../services/storageService";
 
 const { width } = Dimensions.get('window');
 
@@ -47,7 +47,7 @@ const Colors = {
 
 export default function Graphiques() {
   const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme] || Colors.light;
+  const colors = useMemo(() => Colors[colorScheme] || Colors.light, [colorScheme]);
   
   const [dataEau, setDataEau] = useState([]);
   const [dataElectricite, setDataElectricite] = useState([]);
@@ -55,16 +55,35 @@ export default function Graphiques() {
   const [tooltip, setTooltip] = useState({ visible: false, point: null });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
 
-  // Animations
-  const fadeAnim = useState(new Animated.Value(0))[0];
-  const slideAnim = useState(new Animated.Value(30))[0];
+  // Animations avec useRef pour éviter les réinitialisations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  // Mémoized values
+  const hasData = useMemo(() => 
+    dataEau.length > 0 || dataElectricite.length > 0, 
+    [dataEau.length, dataElectricite.length]
+  );
 
-  const startAnimations = () => {
+  const totalReleves = useMemo(() => 
+    dataEau.length + dataElectricite.length, 
+    [dataEau.length, dataElectricite.length]
+  );
+
+  const analysisMessage = useMemo(() => {
+    if (totalReleves >= 10) {
+      return "Vous avez suffisamment de données pour une analyse précise. Continuez à suivre votre consommation !";
+    } else if (totalReleves >= 5) {
+      return "Bonne progression ! Ajoutez plus de relevés pour améliorer la précision des analyses.";
+    } else {
+      return "Commencez à voir vos tendances. Ajoutez régulièrement des relevés pour des analyses plus détaillées.";
+    }
+  }, [totalReleves]);
+
+  // Callbacks optimisés
+  const startAnimations = useCallback(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -77,28 +96,35 @@ export default function Graphiques() {
         useNativeDriver: true,
       }),
     ]).start();
-  };
+  }, [fadeAnim, slideAnim]);
 
-  const loadData = () => {
-    setLoading(true);
+  const loadData = useCallback(() => {
+    setError(null);
     fetchReleves(
       (releves) => {
-        setDataEau(releves.filter((r) => r.type === "Eau"));
-        setDataElectricite(releves.filter((r) => r.type === "Électricité"));
+        const eauData = releves.filter((r) => r.type === "Eau");
+        const electriciteData = releves.filter((r) => r.type === "Électricité");
+        
+        setDataEau(eauData);
+        setDataElectricite(electriciteData);
         setLoading(false);
         setRefreshing(false);
-        startAnimations();
+        
+        if (eauData.length > 0 || electriciteData.length > 0) {
+          startAnimations();
+        }
       },
       (err) => {
         console.error("Erreur chargement données:", err);
+        setError("Impossible de charger les données");
         setLoading(false);
         setRefreshing(false);
         startAnimations();
       }
     );
-  };
+  }, [startAnimations]);
 
-  const handleDataPointClick = (data) => {
+  const handleDataPointClick = useCallback((data) => {
     setTooltip({ 
       visible: true, 
       point: {
@@ -108,20 +134,197 @@ export default function Graphiques() {
         type: data.type
       }
     });
-  };
+  }, []);
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     setRefreshing(true);
     loadData();
-  };
+  }, [loadData]);
 
-  const onRefresh = () => {
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadData();
-  };
+  }, [loadData]);
 
-  const hasData = dataEau.length > 0 || dataElectricite.length > 0;
-  const totalReleves = dataEau.length + dataElectricite.length;
+  const closeTooltip = useCallback(() => {
+    setTooltip({ visible: false, point: null });
+  }, []);
+
+  const handleChartTypeChange = useCallback((type) => {
+    setChartType(type);
+  }, []);
+
+  // Effet d'initialisation
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Rendu des statistiques mémoizé
+  const renderStats = useMemo(() => {
+    if (!hasData) return null;
+
+    const statItems = [
+      { 
+        icon: "water-outline", 
+        count: dataEau.length, 
+        label: "Relevés eau",
+        color: colors.primary 
+      },
+      { 
+        icon: "flash-outline", 
+        count: dataElectricite.length, 
+        label: "Relevés électricité",
+        color: colors.primary 
+      },
+      { 
+        icon: "stats-chart-outline", 
+        count: totalReleves, 
+        label: "Total",
+        color: colors.primary 
+      }
+    ];
+
+    return (
+      <View style={[styles.statsContainer, { backgroundColor: colors.card }]}>
+        {statItems.map((item, index) => (
+          <View key={item.label} style={styles.statItem}>
+            {index > 0 && (
+              <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+            )}
+            <Ionicons name={item.icon} size={20} color={item.color} />
+            <Text style={[styles.statNumber, { color: item.color }]}>
+              {item.count}
+            </Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
+              {item.label}
+            </Text>
+          </View>
+        ))}
+      </View>
+    );
+  }, [hasData, dataEau.length, dataElectricite.length, totalReleves, colors]);
+
+  // Rendu du contenu des graphiques mémoizé
+  const renderChartsContent = useMemo(() => {
+    if (!hasData) {
+      return (
+        <Animated.View 
+          style={[
+            styles.emptyContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
+        >
+          <Ionicons name="bar-chart-outline" size={64} color={colors.textSecondary} />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>
+            Aucune donnée disponible
+          </Text>
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+            Commencez par ajouter des relevés pour visualiser vos graphiques de consommation
+          </Text>
+          <AppButton 
+            title="➕ Premier relevé" 
+            onPress={() => console.log("Navigate to add")}
+            variant="success"
+            style={styles.emptyButton}
+            size="large"
+          />
+        </Animated.View>
+      );
+    }
+
+    return (
+      <Animated.View style={[styles.chartsContainer, { opacity: fadeAnim }]}>
+        <ScrollView 
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        >
+          {dataEau.length > 0 && (
+            <View style={styles.chartSection}>
+              <ChartContainer
+                data={dataEau}
+                type={chartType}
+                title="💧 Consommation d'Eau"
+                onDataPointClick={handleDataPointClick}
+                colors={["#007AFF", "#5AC8FA", "#34C759", "#64D2FF"]}
+              />
+            </View>
+          )}
+
+          {dataElectricite.length > 0 && (
+            <View style={styles.chartSection}>
+              <ChartContainer
+                data={dataElectricite}
+                type={chartType}
+                title="⚡ Consommation d'Électricité"
+                onDataPointClick={handleDataPointClick}
+                colors={["#FF9500", "#FF3B30", "#FFD60A", "#FF9F0A"]}
+              />
+            </View>
+          )}
+
+          {/* Section d'analyse */}
+          <View style={[styles.analysisContainer, { backgroundColor: colors.card }]}>
+            <Text style={[styles.analysisTitle, { color: colors.text }]}>
+              📈 Analyse des données
+            </Text>
+            <Text style={[styles.analysisText, { color: colors.textSecondary }]}>
+              {analysisMessage}
+            </Text>
+          </View>
+        </ScrollView>
+      </Animated.View>
+    );
+  }, [
+    hasData, dataEau, dataElectricite, chartType, colors, 
+    fadeAnim, slideAnim, refreshing, onRefresh, 
+    handleDataPointClick, analysisMessage
+  ]);
+
+  // Rendu du tooltip mémoizé
+  const renderTooltipContent = useMemo(() => {
+    if (!tooltip.point) return null;
+
+    return (
+      <View style={styles.tooltipContent}>
+        <View style={[styles.tooltipHeader, { backgroundColor: colors.primary + '15' }]}>
+          <Ionicons 
+            name={tooltip.point.type === "Eau" ? "water" : "flash"} 
+            size={24} 
+            color={colors.primary} 
+          />
+          <Text style={[styles.tooltipType, { color: colors.primary }]}>
+            {tooltip.point.type || "Donnée"}
+          </Text>
+        </View>
+        
+        <View style={styles.tooltipRows}>
+          <View style={styles.tooltipRow}>
+            <Text style={[styles.tooltipLabel, { color: colors.text }]}>Valeur :</Text>
+            <Text style={[styles.tooltipValue, { color: colors.primary }]}>
+              {tooltip.point.value} {tooltip.point.type === "Eau" ? "L" : "kWh"}
+            </Text>
+          </View>
+          <View style={styles.tooltipRow}>
+            <Text style={[styles.tooltipLabel, { color: colors.text }]}>Date :</Text>
+            <Text style={[styles.tooltipValue, { color: colors.text }]}>
+              {tooltip.point.label}
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  }, [tooltip.point, colors]);
 
   if (loading) {
     return <LoadingScreen message="Chargement des graphiques..." />;
@@ -154,49 +357,12 @@ export default function Graphiques() {
             onPress={handleRefresh}
             variant="secondary"
             style={styles.refreshButton}
-            // icon="refresh-outline"
             size="small"
+            loading={refreshing}
           />
         </View>
 
-        {/* Stats rapides */}
-        {hasData && (
-          <View style={[styles.statsContainer, { backgroundColor: colors.card }]}>
-            <View style={styles.statItem}>
-              <Ionicons name="water-outline" size={20} color={colors.primary} />
-              <Text style={[styles.statNumber, { color: colors.primary }]}>
-                {dataEau.length}
-              </Text>
-              <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-                Relevés eau
-              </Text>
-            </View>
-            
-            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-            
-            <View style={styles.statItem}>
-              <Ionicons name="flash-outline" size={20} color={colors.primary} />
-              <Text style={[styles.statNumber, { color: colors.primary }]}>
-                {dataElectricite.length}
-              </Text>
-              <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-                Relevés électricité
-              </Text>
-            </View>
-            
-            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-            
-            <View style={styles.statItem}>
-              <Ionicons name="stats-chart-outline" size={20} color={colors.primary} />
-              <Text style={[styles.statNumber, { color: colors.primary }]}>
-                {totalReleves}
-              </Text>
-              <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-                Total
-              </Text>
-            </View>
-          </View>
-        )}
+        {renderStats}
       </Animated.View>
 
       {/* Sélecteur de graphique */}
@@ -211,136 +377,36 @@ export default function Graphiques() {
       >
         <ChartSelector 
           selectedType={chartType} 
-          onTypeChange={setChartType} 
+          onTypeChange={handleChartTypeChange} 
         />
       </Animated.View>
 
-      {!hasData ? (
-        <Animated.View 
-          style={[
-            styles.emptyContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }]
-            }
-          ]}
-        >
-          <Ionicons name="bar-chart-outline" size={64} color={colors.textSecondary} />
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>
-            Aucune donnée disponible
-          </Text>
-          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-            Commencez par ajouter des relevés pour visualiser vos graphiques de consommation
-          </Text>
-          <AppButton 
-            title="➕ Premier relevé" 
-            onPress={() => console.log("Navigate to add")}
-            variant="success"
-            style={styles.emptyButton}
-            size="large"
-          />
-        </Animated.View>
-      ) : (
-        <Animated.View 
-          style={[
-            styles.chartsContainer,
-            {
-              opacity: fadeAnim,
-            }
-          ]}
-        >
-          <ScrollView 
-            style={styles.scrollView}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                colors={[colors.primary]}
-                tintColor={colors.primary}
-              />
-            }
-          >
-            {dataEau.length > 0 && (
-              <View style={styles.chartSection}>
-                <ChartContainer
-                  data={dataEau}
-                  type={chartType}
-                  title="💧 Consommation d'Eau"
-                  onDataPointClick={handleDataPointClick}
-                  colors={["#007AFF", "#5AC8FA", "#34C759", "#64D2FF"]}
-                />
-              </View>
-            )}
-
-            {dataElectricite.length > 0 && (
-              <View style={styles.chartSection}>
-                <ChartContainer
-                  data={dataElectricite}
-                  type={chartType}
-                  title="⚡ Consommation d'Électricité"
-                  onDataPointClick={handleDataPointClick}
-                  colors={["#FF9500", "#FF3B30", "#FFD60A", "#FF9F0A"]}
-                />
-              </View>
-            )}
-
-            {/* Section d'analyse */}
-            {hasData && (
-              <View style={[styles.analysisContainer, { backgroundColor: colors.card }]}>
-                <Text style={[styles.analysisTitle, { color: colors.text }]}>
-                  📈 Analyse des données
-                </Text>
-                <Text style={[styles.analysisText, { color: colors.textSecondary }]}>
-                  {totalReleves >= 10 
-                    ? "Vous avez suffisamment de données pour une analyse précise. Continuez à suivre votre consommation !"
-                    : totalReleves >= 5
-                    ? "Bonne progression ! Ajoutez plus de relevés pour améliorer la précision des analyses."
-                    : "Commencez à voir vos tendances. Ajoutez régulièrement des relevés pour des analyses plus détaillées."
-                  }
-                </Text>
-              </View>
-            )}
-          </ScrollView>
-        </Animated.View>
-      )}
+      {renderChartsContent}
 
       {/* Modal de détails */}
       <BaseModal
         visible={tooltip.visible}
-        onClose={() => setTooltip({ visible: false, point: null })}
+        onClose={closeTooltip}
         title="📊 Détails du point de données"
       >
-        {tooltip.point && (
-          <View style={styles.tooltipContent}>
-            <View style={[styles.tooltipHeader, { backgroundColor: colors.primary + '15' }]}>
-              <Ionicons 
-                name={tooltip.point.type === "Eau" ? "water" : "flash"} 
-                size={24} 
-                color={colors.primary} 
-              />
-              <Text style={[styles.tooltipType, { color: colors.primary }]}>
-                {tooltip.point.type || "Donnée"}
-              </Text>
-            </View>
-            
-            <View style={styles.tooltipRows}>
-              <View style={styles.tooltipRow}>
-                <Text style={[styles.tooltipLabel, { color: colors.text }]}>Valeur :</Text>
-                <Text style={[styles.tooltipValue, { color: colors.primary }]}>
-                  {tooltip.point.value} {tooltip.point.type === "Eau" ? "L" : "kWh"}
-                </Text>
-              </View>
-              <View style={styles.tooltipRow}>
-                <Text style={[styles.tooltipLabel, { color: colors.text }]}>Date :</Text>
-                <Text style={[styles.tooltipValue, { color: colors.text }]}>
-                  {tooltip.point.label}
-                </Text>
-              </View>
-            </View>
-          </View>
-        )}
+        {renderTooltipContent}
       </BaseModal>
+
+      {/* Affichage d'erreur */}
+      {error && (
+        <View style={[styles.errorBanner, { backgroundColor: colors.error + '20' }]}>
+          <Ionicons name="warning-outline" size={20} color={colors.error} />
+          <Text style={[styles.errorText, { color: colors.error }]}>
+            {error}
+          </Text>
+          <AppButton 
+            title="Réessayer" 
+            onPress={loadData}
+            variant="error"
+            size="small"
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -372,7 +438,6 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 12,
     lineHeight: 20,
-    // fontStyle:"italic",
   },
   refreshButton: {
     paddingVertical: 3,
@@ -503,5 +568,21 @@ const styles = StyleSheet.create({
   tooltipValue: {
     fontSize: 15,
     fontWeight: 'bold',
+  },
+  errorBanner: {
+    position: 'absolute',
+    top: 100,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
   },
 });

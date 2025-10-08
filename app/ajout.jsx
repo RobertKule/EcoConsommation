@@ -1,238 +1,408 @@
-import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   View,
-  useColorScheme
-} from "react-native";
-import { initDB, insertReleve } from "../services/Database"; // ✅ IMPORT CORRIGÉ
+} from 'react-native';
+import { getStorageMode, insertReleve } from '../services/storageService';
 
-// Couleurs pour les thèmes
 const Colors = {
   light: {
     primary: "#007AFF",
+    secondary: "#5856D6",
     background: "#f8faff",
     card: "#ffffff",
     text: "#1a1a1a",
     textSecondary: "#666",
-    border: "#e5e5e7",
+    border: "#f0f0f0",
+    inputBackground: "#ffffff",
     success: "#34C759",
-    overlay: "rgba(0, 0, 0, 0.5)"
+    warning: "#FF9500",
+    error: "#FF3B30"
   },
   dark: {
     primary: "#0A84FF",
+    secondary: "#BF5AF2",
     background: "#000000",
     card: "#1c1c1e",
     text: "#ffffff",
     textSecondary: "#98989f",
     border: "#38383a",
+    inputBackground: "#2c2c2e",
     success: "#30D158",
-    overlay: "rgba(0, 0, 0, 0.7)"
+    warning: "#FF9F0A",
+    error: "#FF453A"
   }
 };
 
-export default function AjoutScreen() {
+// Types de relevés constants
+const TYPES_RELEVE = [
+  { id: 'Eau', label: '💧 Eau', unit: 'm³' },
+  { id: 'Électricité', label: '⚡ Électricité', unit: 'kWh' },
+];
+
+export default function AjoutReleve() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme] || Colors.light;
-  
-  const [type, setType] = useState("");
-  const [indexVal, setIndexVal] = useState("");
-  const [modalVisible, setModalVisible] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [focusedInput, setFocusedInput] = useState(null);
+  const router = useRouter();
 
-  // ✅ Initialisation de la base dès le chargement
-  useEffect(() => {
-    initDB();
+  const [type, setType] = useState('Eau');
+  const [index_val, setIndexVal] = useState('');
+  const [date, setDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Mémoization des valeurs calculées
+  const currentType = useMemo(() => 
+    TYPES_RELEVE.find(t => t.id === type), 
+    [type]
+  );
+
+  const storageMode = useMemo(() => getStorageMode(), []);
+
+  // Callbacks optimisés avec useCallback
+  const handleDateChange = useCallback((event, selectedDate) => {
+    setShowDatePicker(false);
+    if (selectedDate) {
+      setDate(selectedDate);
+    }
   }, []);
 
-  const handleSave = () => {
-    if (!type || !indexVal) {
-      alert("Veuillez remplir tous les champs avant de continuer.");
-      return;
+  const formatDate = useCallback((date) => {
+    return date.toISOString().split('T')[0];
+  }, []);
+
+  const validateForm = useCallback(() => {
+    const numericValue = parseFloat(index_val);
+    
+    if (!index_val.trim() || isNaN(numericValue)) {
+      Alert.alert('Erreur', 'Veuillez saisir un index valide');
+      return false;
     }
 
-    setLoading(true);
-    const date = new Date().toISOString().split("T")[0];
+    if (numericValue < 0) {
+      Alert.alert('Erreur', "L'index ne peut pas être négatif");
+      return false;
+    }
 
-    insertReleve(
-      type,
-      parseInt(indexVal),
-      date,
-      () => {
-        setLoading(false);
-        setModalVisible(true);
-        setIndexVal("");
-        setType("");
-      },
-      (error) => {
-        setLoading(false);
-        alert("Erreur lors de l'enregistrement : " + error.message);
-      }
-    );
-  };
+    // Validation supplémentaire : valeur trop élevée
+    if (numericValue > 1000000) {
+      Alert.alert('Erreur', "L'index semble trop élevé. Vérifiez votre saisie.");
+      return false;
+    }
 
-  const getPlaceholder = () => {
-    if (type === "Eau") return "Ex: 245 (en litres)";
-    if (type === "Électricité") return "Ex: 1250 (en kWh)";
-    return "Entrez la valeur de l'index";
-  };
+    return true;
+  }, [index_val]);
+
+  const handleSubmit = useCallback(async () => {
+    if (!validateForm()) return;
+
+    setIsSubmitting(true);
+
+    try {
+      await insertReleve(
+        type,
+        parseFloat(index_val),
+        formatDate(date),
+        (newReleve) => {
+          console.log('✅ Relevé ajouté avec succès:', newReleve);
+          Alert.alert(
+            'Succès 🎉',
+            `Relevé ${type} ajouté avec succès !\nIndex: ${index_val} ${currentType?.unit}`,
+            [
+              {
+                text: 'Retour à l\'accueil',
+                onPress: () => router.replace('/(tabs)')
+              },
+              {
+                text: 'Ajouter un autre',
+                onPress: () => {
+                  setIndexVal('');
+                  setDate(new Date());
+                },
+                style: 'default'
+              }
+            ]
+          );
+        },
+        (error) => {
+          console.error('❌ Erreur ajout relevé:', error);
+          Alert.alert(
+            'Erreur',
+            'Une erreur est survenue lors de l\'ajout du relevé. Veuillez réessayer.'
+          );
+        }
+      );
+    } catch (error) {
+      console.error('❌ Erreur critique:', error);
+      Alert.alert(
+        'Erreur Critique',
+        'Impossible d\'ajouter le relevé. Vérifiez votre connexion et réessayez.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [type, index_val, date, validateForm, formatDate, currentType?.unit, router]);
+
+  const handleTypeSelect = useCallback((selectedType) => {
+    setType(selectedType);
+    // Réinitialiser l'index quand on change de type pour éviter les confusions
+    if (index_val) {
+      Alert.alert(
+        'Changement de type',
+        `Vous changez de ${type} à ${selectedType}. L'index actuel sera réinitialisé.`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { 
+            text: 'Continuer', 
+            onPress: () => setIndexVal(''),
+            style: 'destructive'
+          }
+        ]
+      );
+    }
+  }, [type, index_val]);
+
+  const handleCancel = useCallback(() => {
+    if (index_val.trim() && !isSubmitting) {
+      Alert.alert(
+        'Annuler',
+        'Voulez-vous vraiment annuler ? Les données saisies seront perdues.',
+        [
+          { text: 'Continuer la saisie', style: 'cancel' },
+          { text: 'Annuler', onPress: () => router.back(), style: 'destructive' }
+        ]
+      );
+    } else {
+      router.back();
+    }
+  }, [index_val, isSubmitting, router]);
+
+  const showDatePickerModal = useCallback(() => {
+    setShowDatePicker(true);
+  }, []);
+
+  // Rendu optimisé des boutons de type
+  const renderTypeButtons = useMemo(() => 
+    TYPES_RELEVE.map((item) => (
+      <TouchableOpacity
+        key={item.id}
+        style={[
+          styles.typeButton,
+          {
+            backgroundColor: type === item.id ? colors.primary : colors.card,
+            borderColor: type === item.id ? colors.primary : colors.border,
+          }
+        ]}
+        onPress={() => handleTypeSelect(item.id)}
+        disabled={isSubmitting}
+      >
+        <Text
+          style={[
+            styles.typeButtonText,
+            {
+              color: type === item.id ? '#fff' : colors.text,
+              opacity: isSubmitting ? 0.6 : 1,
+            }
+          ]}
+        >
+          {item.label}
+        </Text>
+      </TouchableOpacity>
+    )), 
+    [type, colors, isSubmitting, handleTypeSelect]
+  );
 
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
       <ScrollView 
-        showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        {/* En-tête */}
         <View style={styles.header}>
-          <Ionicons name="add-circle" size={32} color={colors.primary} />
           <Text style={[styles.title, { color: colors.text }]}>
-            Nouveau relevé
+            Nouveau Relevé
           </Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            Ajoutez un relevé d'eau ou d'électricité
+            Ajoutez un nouveau relevé de consommation
           </Text>
         </View>
 
-        {/* Section Type */}
+        {/* Sélection du type */}
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="water-outline" size={20} color={colors.text} />
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Type de relevé
-            </Text>
-          </View>
-          
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            Type de consommation
+          </Text>
           <View style={styles.typeContainer}>
-            {["Eau", "Électricité"].map((item) => (
-              <TouchableOpacity
-                key={item}
-                style={[
-                  styles.typeButton,
-                  { backgroundColor: colors.card, borderColor: colors.border },
-                  type === item && [styles.typeButtonActive, { backgroundColor: colors.primary }],
-                ]}
-                onPress={() => setType(item)}
-              >
-                <Text
-                  style={[
-                    styles.typeText,
-                    { color: colors.primary },
-                    type === item && styles.typeTextActive,
-                  ]}
-                >
-                  {item === "Eau" ? "💧 Eau" : "⚡ Électricité"}
-                </Text>
-              </TouchableOpacity>
-            ))}
+            {renderTypeButtons}
           </View>
         </View>
 
-        {/* Section Index */}
+        {/* Saisie de l'index */}
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="speedometer-outline" size={20} color={colors.text} />
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Valeur de l'index
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            Index de consommation
+          </Text>
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={[
+                styles.textInput,
+                {
+                  backgroundColor: colors.inputBackground,
+                  borderColor: colors.border,
+                  color: colors.text,
+                  opacity: isSubmitting ? 0.6 : 1,
+                }
+              ]}
+              placeholder={`Saisir l'index en ${currentType?.unit || ''}`}
+              placeholderTextColor={colors.textSecondary}
+              value={index_val}
+              onChangeText={setIndexVal}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              editable={!isSubmitting}
+              selectTextOnFocus={!isSubmitting}
+            />
+            <Text style={[styles.unit, { color: colors.textSecondary }]}>
+              {currentType?.unit || ''}
             </Text>
           </View>
-          
-          <View style={[
-            styles.inputContainer,
-            { 
-              backgroundColor: colors.card,
-              borderColor: focusedInput === 'index' ? colors.primary : colors.border
-            }
-          ]}>
-            <TextInput
-              style={[styles.input, { color: colors.text }]}
-              value={indexVal}
-              onChangeText={setIndexVal}
-              placeholder={getPlaceholder()}
-              placeholderTextColor={colors.textSecondary}
-              keyboardType="numeric"
-              onFocus={() => setFocusedInput('index')}
-              onBlur={() => setFocusedInput(null)}
-            />
-            {type && (
-              <Text style={[styles.unit, { color: colors.textSecondary }]}>
-                {type === "Eau" ? "L" : "kWh"}
-              </Text>
-            )}
-          </View>
         </View>
 
-        {/* Bouton d'enregistrement */}
-        <TouchableOpacity
-          onPress={handleSave}
-          style={[
-            styles.saveButton,
-            { backgroundColor: colors.primary },
-            (!type || !indexVal || loading) && styles.saveButtonDisabled,
-          ]}
-          disabled={!type || !indexVal || loading}
-        >
-          {loading ? (
-            <Ionicons name="time-outline" size={20} color="#fff" />
-          ) : (
-            <Ionicons name="checkmark-circle" size={20} color="#fff" />
-          )}
-          <Text style={styles.saveButtonText}>
-            {loading ? "Enregistrement..." : "Enregistrer le relevé"}
+        {/* Sélection de la date */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            Date du relevé
           </Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.dateButton,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                opacity: isSubmitting ? 0.6 : 1,
+              }
+            ]}
+            onPress={showDatePickerModal}
+            disabled={isSubmitting}
+          >
+            <Ionicons 
+              name="calendar" 
+              size={20} 
+              color={colors.primary} 
+            />
+            <Text style={[styles.dateText, { color: colors.text }]}>
+              {date.toLocaleDateString('fr-FR', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+              })}
+            </Text>
+            <Ionicons 
+              name="chevron-forward" 
+              size={16} 
+              color={colors.textSecondary} 
+            />
+          </TouchableOpacity>
 
-        {/* Aide */}
-        <View style={[styles.tipContainer, { backgroundColor: colors.primary + '15' }]}>
-          <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
-          <Text style={[styles.tipText, { color: colors.primary }]}>
-            {type 
-              ? `Entrez la valeur de votre compteur ${type.toLowerCase()} en ${type === "Eau" ? "litres" : "kWh"}`
-              : "Sélectionnez d'abord le type de relevé"
-            }
-          </Text>
+          {showDatePicker && (
+            <DateTimePicker
+              value={date}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              onChange={handleDateChange}
+              maximumDate={new Date()}
+            />
+          )}
+        </View>
+
+        {/* Bouton de soumission */}
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={[
+              styles.submitButton,
+              {
+                backgroundColor: isSubmitting ? colors.textSecondary : colors.primary,
+                opacity: isSubmitting ? 0.7 : 1,
+              }
+            ]}
+            onPress={handleSubmit}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <Ionicons name="hourglass-outline" size={20} color="#fff" />
+            ) : (
+              <Ionicons name="add-circle-outline" size={20} color="#fff" />
+            )}
+            <Text style={styles.submitButtonText}>
+              {isSubmitting ? 'Ajout en cours...' : 'Ajouter le relevé'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.cancelButton,
+              {
+                borderColor: colors.border,
+                opacity: isSubmitting ? 0.6 : 1,
+              }
+            ]}
+            onPress={handleCancel}
+            disabled={isSubmitting}
+          >
+            <Ionicons 
+              name="arrow-back" 
+              size={16} 
+              color={colors.text} 
+            />
+            <Text style={[styles.cancelButtonText, { color: colors.text }]}>
+              Annuler
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Informations */}
+        <View style={[
+          styles.infoBox,
+          {
+            backgroundColor: colorScheme === 'dark' ? 'rgba(10, 132, 255, 0.1)' : 'rgba(0, 122, 255, 0.1)',
+            borderColor: colorScheme === 'dark' ? 'rgba(10, 132, 255, 0.3)' : 'rgba(0, 122, 255, 0.3)',
+          }
+        ]}>
+          <Ionicons 
+            name="information-circle-outline" 
+            size={20} 
+            color={colors.primary} 
+          />
+          <View style={styles.infoContent}>
+            <Text style={[styles.infoTitle, { color: colors.text }]}>
+              Stockage {storageMode === 'sqlite' ? 'SQLite' : 'AsyncStorage'}
+            </Text>
+            <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+              {storageMode === 'sqlite' 
+                ? 'Vos données sont stockées dans une base de données locale sécurisée.'
+                : 'Vos données sont stockées dans le stockage local de l\'application.'
+              }
+            </Text>
+          </View>
         </View>
       </ScrollView>
-
-      {/* Modal de confirmation */}
-      <Modal
-        visible={modalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <View style={styles.modalIcon}>
-              <Ionicons name="checkmark-circle" size={48} color={colors.success} />
-            </View>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>
-              ✅ Relevé enregistré !
-            </Text>
-            <Text style={[styles.modalText, { color: colors.textSecondary }]}>
-              Votre relevé a été ajouté avec succès à l'historique.
-            </Text>
-            <Pressable
-              style={[styles.modalButton, { backgroundColor: colors.primary }]}
-              onPress={() => setModalVisible(false)}
-            >
-              <Text style={styles.modalButtonText}>Continuer</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -242,152 +412,142 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
+    flexGrow: 1,
     padding: 20,
     paddingBottom: 40,
   },
   header: {
     alignItems: 'center',
-    marginBottom: 32,
-    paddingTop: 10,
+    marginBottom: 30,
+    marginTop: 10,
   },
   title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginTop: 12,
+    fontSize: 28,
+    fontWeight: 'bold',
     marginBottom: 8,
-    textAlign: "center",
+    textAlign: 'center',
   },
   subtitle: {
-    fontSize: 14,
-    textAlign: "center",
-    lineHeight: 20,
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 22,
   },
   section: {
-    marginBottom: 28,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    gap: 12,
+    marginBottom: 25,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
+    marginBottom: 12,
   },
   typeContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
+    flexDirection: 'row',
+    gap: 10,
   },
   typeButton: {
     flex: 1,
-    padding: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 2,
-    alignItems: "center",
-    minHeight: 60,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  typeButtonActive: {
-    borderColor: 'transparent',
-  },
-  typeText: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  typeTextActive: {
-    color: "#fff",
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    height: 56,
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '500',
-    paddingVertical: 8,
-  },
-  unit: {
+  typeButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    marginLeft: 8,
   },
-  saveButton: {
+  inputContainer: {
+    position: 'relative',
+  },
+  textInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    fontSize: 16,
+    paddingRight: 60,
+    fontWeight: '500',
+  },
+  unit: {
+    position: 'absolute',
+    right: 16,
+    top: 16,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  dateText: {
+    fontSize: 16,
+    fontWeight: '500',
+    flex: 1,
+  },
+  footer: {
+    marginTop: 20,
+    gap: 12,
+  },
+  submitButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
+    gap: 10,
+    paddingVertical: 18,
     borderRadius: 12,
-    marginTop: 8,
-    marginBottom: 20,
-    gap: 8,
-    minHeight: 56,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  saveButtonDisabled: {
-    opacity: 0.6,
-  },
-  saveButtonText: {
-    color: "#fff",
+  submitButtonText: {
+    color: '#fff',
     fontSize: 16,
-    fontWeight: "bold",
+    fontWeight: '600',
   },
-  tipContainer: {
+  cancelButton: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
     borderRadius: 12,
-    padding: 16,
-    gap: 12,
+    borderWidth: 1,
   },
-  tipText: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 18,
+  cancelButtonText: {
+    fontSize: 16,
     fontWeight: '500',
   },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  modalContent: {
-    borderRadius: 20,
-    padding: 24,
-    width: '100%',
-    maxWidth: 320,
-    alignItems: "center",
-  },
-  modalIcon: {
-    marginBottom: 16,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  modalText: {
-    fontSize: 15,
-    textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 24,
-  },
-  modalButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 32,
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 16,
     borderRadius: 12,
-    minWidth: 120,
+    borderWidth: 1,
+    marginTop: 30,
   },
-  modalButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 16,
-    textAlign: 'center',
+  infoContent: {
+    flex: 1,
+  },
+  infoTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  infoText: {
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

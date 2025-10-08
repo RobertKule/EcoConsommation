@@ -18,7 +18,7 @@ import AppPreferences from "../components/Settings/AppPreferences";
 import ProfileSettings from "../components/Settings/ProfileSettings";
 import SettingsItem from "../components/Settings/SettingsItem";
 import SettingsSection from "../components/Settings/SettingsSection";
-import { fetchReleves } from "../services/Database";
+import { fetchReleves } from "../services/storageService";
 
 // Couleurs pour les thèmes
 const Colors = {

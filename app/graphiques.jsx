@@ -1,28 +1,34 @@
-import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useMemo, useState } from 'react';
 import {
-  Animated,
   Dimensions,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
+  useColorScheme,
   View,
-  useColorScheme
-} from "react-native";
-import AppButton from "../components/Button/AppButton";
-import ChartContainer from "../components/Charts/ChartContainer";
-import ChartSelector from "../components/Charts/ChartSelector";
-import LoadingScreen from "../components/LoadingScreen";
-import BaseModal from "../components/Modal/BaseModal";
-import { fetchReleves } from "../services/storageService";
+} from 'react-native';
+import AppButton from '../components/Button/AppButton';
+import AdvancedChartContainer from '../components/Charts/AdvancedChartContainer';
+import CustomBarChart from '../components/Charts/BarChart';
+import ChartExport from '../components/Charts/ChartExport';
+import CustomLineChart from '../components/Charts/LineChart';
+import CustomPieChart from '../components/Charts/PieChart';
+import LoadingScreen from '../components/LoadingScreen';
+import BaseModal from '../components/Modal/BaseModal';
+import { AnalyticsService } from '../services/AnalyticsService';
+import { ChartService } from '../services/ChartService';
+import { fetchReleves } from '../services/storageService';
 
 const { width } = Dimensions.get('window');
 
-// Couleurs pour les thèmes
 const Colors = {
   light: {
     primary: "#007AFF",
+    secondary: "#5856D6",
     background: "#f8faff",
     card: "#ffffff",
     text: "#1a1a1a",
@@ -34,6 +40,7 @@ const Colors = {
   },
   dark: {
     primary: "#0A84FF",
+    secondary: "#BF5AF2",
     background: "#000000",
     card: "#1c1c1e",
     text: "#ffffff",
@@ -45,21 +52,33 @@ const Colors = {
   }
 };
 
+const CHART_TYPES = {
+  ADVANCED: 'advanced',
+  LINE: 'line',
+  BAR: 'bar',
+  PIE: 'pie'
+};
+
+const PERIODS = {
+  ALL: 'all',
+  MONTH: 'month',
+  '3MONTHS': '3months',
+  YEAR: 'year'
+};
+
 export default function Graphiques() {
   const colorScheme = useColorScheme();
   const colors = useMemo(() => Colors[colorScheme] || Colors.light, [colorScheme]);
-  
+
   const [dataEau, setDataEau] = useState([]);
   const [dataElectricite, setDataElectricite] = useState([]);
-  const [chartType, setChartType] = useState("line");
-  const [tooltip, setTooltip] = useState({ visible: false, point: null });
+  const [selectedChartType, setSelectedChartType] = useState(CHART_TYPES.ADVANCED);
+  const [selectedPeriod, setSelectedPeriod] = useState(PERIODS.ALL);
+  const [selectedDataType, setSelectedDataType] = useState('both');
+  const [exportModal, setExportModal] = useState({ visible: false, chart: null, title: '' });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
-
-  // Animations avec useRef pour éviter les réinitialisations
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
+  const [analysis, setAnalysis] = useState({ eau: null, electricite: null });
 
   // Mémoized values
   const hasData = useMemo(() => 
@@ -72,259 +91,331 @@ export default function Graphiques() {
     [dataEau.length, dataElectricite.length]
   );
 
-  const analysisMessage = useMemo(() => {
-    if (totalReleves >= 10) {
-      return "Vous avez suffisamment de données pour une analyse précise. Continuez à suivre votre consommation !";
-    } else if (totalReleves >= 5) {
-      return "Bonne progression ! Ajoutez plus de relevés pour améliorer la précision des analyses.";
-    } else {
-      return "Commencez à voir vos tendances. Ajoutez régulièrement des relevés pour des analyses plus détaillées.";
-    }
-  }, [totalReleves]);
+  const filteredDataEau = useMemo(() => 
+    ChartService.filterByPeriod(dataEau, selectedPeriod),
+    [dataEau, selectedPeriod]
+  );
+
+  const filteredDataElectricite = useMemo(() => 
+    ChartService.filterByPeriod(dataElectricite, selectedPeriod),
+    [dataElectricite, selectedPeriod]
+  );
 
   // Callbacks optimisés
-  const startAnimations = useCallback(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [fadeAnim, slideAnim]);
+  const loadData = useCallback(async () => {
+    try {
+      await fetchReleves(
+        (releves) => {
+          const eauData = releves.filter(r => r.type === "Eau");
+          const electriciteData = releves.filter(r => r.type === "Électricité");
+          
+          setDataEau(eauData);
+          setDataElectricite(electriciteData);
 
-  const loadData = useCallback(() => {
-    setError(null);
-    fetchReleves(
-      (releves) => {
-        const eauData = releves.filter((r) => r.type === "Eau");
-        const electriciteData = releves.filter((r) => r.type === "Électricité");
-        
-        setDataEau(eauData);
-        setDataElectricite(electriciteData);
-        setLoading(false);
-        setRefreshing(false);
-        
-        if (eauData.length > 0 || electriciteData.length > 0) {
-          startAnimations();
+          // Calculer les analyses
+          const eauAnalysis = AnalyticsService.analyzeConsumption(releves, "Eau");
+          const electriciteAnalysis = AnalyticsService.analyzeConsumption(releves, "Électricité");
+          
+          setAnalysis({
+            eau: eauAnalysis,
+            electricite: electriciteAnalysis
+          });
+
+          setLoading(false);
+          setRefreshing(false);
+        },
+        (error) => {
+          console.error("Erreur chargement données:", error);
+          setLoading(false);
+          setRefreshing(false);
         }
-      },
-      (err) => {
-        console.error("Erreur chargement données:", err);
-        setError("Impossible de charger les données");
-        setLoading(false);
-        setRefreshing(false);
-        startAnimations();
-      }
-    );
-  }, [startAnimations]);
-
-  const handleDataPointClick = useCallback((data) => {
-    setTooltip({ 
-      visible: true, 
-      point: {
-        value: data.value,
-        label: data.label,
-        index: data.index,
-        type: data.type
-      }
-    });
+      );
+    } catch (error) {
+      console.error("Erreur critique:", error);
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
     loadData();
   }, [loadData]);
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    loadData();
-  }, [loadData]);
-
-  const closeTooltip = useCallback(() => {
-    setTooltip({ visible: false, point: null });
+  const handleExportChart = useCallback((chartComponent, title) => {
+    setExportModal({ visible: true, chart: chartComponent, title });
   }, []);
 
-  const handleChartTypeChange = useCallback((type) => {
-    setChartType(type);
+  const closeExportModal = useCallback(() => {
+    setExportModal({ visible: false, chart: null, title: '' });
   }, []);
 
-  // Effet d'initialisation
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const getPeriodLabel = useCallback((period) => {
+    const labels = {
+      [PERIODS.ALL]: 'Tout',
+      [PERIODS.MONTH]: '1 mois',
+      [PERIODS['3MONTHS']]: '3 mois',
+      [PERIODS.YEAR]: '1 an'
+    };
+    return labels[period] || period;
+  }, []);
 
-  // Rendu des statistiques mémoizé
-  const renderStats = useMemo(() => {
-    if (!hasData) return null;
+  const getChartTypeIcon = useCallback((type) => {
+    const icons = {
+      [CHART_TYPES.ADVANCED]: 'stats-chart',
+      [CHART_TYPES.LINE]: 'trending-up',
+      [CHART_TYPES.BAR]: 'bar-chart',
+      [CHART_TYPES.PIE]: 'pie-chart'
+    };
+    return icons[type] || 'stats-chart';
+  }, []);
 
-    const statItems = [
-      { 
-        icon: "water-outline", 
-        count: dataEau.length, 
-        label: "Relevés eau",
-        color: colors.primary 
-      },
-      { 
-        icon: "flash-outline", 
-        count: dataElectricite.length, 
-        label: "Relevés électricité",
-        color: colors.primary 
-      },
-      { 
-        icon: "stats-chart-outline", 
-        count: totalReleves, 
-        label: "Total",
-        color: colors.primary 
-      }
-    ];
-
-    return (
-      <View style={[styles.statsContainer, { backgroundColor: colors.card }]}>
-        {statItems.map((item, index) => (
-          <View key={item.label} style={styles.statItem}>
-            {index > 0 && (
-              <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-            )}
-            <Ionicons name={item.icon} size={20} color={item.color} />
-            <Text style={[styles.statNumber, { color: item.color }]}>
-              {item.count}
-            </Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-              {item.label}
-            </Text>
-          </View>
-        ))}
-      </View>
-    );
-  }, [hasData, dataEau.length, dataElectricite.length, totalReleves, colors]);
-
-  // Rendu du contenu des graphiques mémoizé
-  const renderChartsContent = useMemo(() => {
-    if (!hasData) {
-      return (
-        <Animated.View 
+  // Rendu des sélecteurs mémoizé
+  const renderPeriodSelector = useMemo(() => (
+    <ScrollView 
+      horizontal 
+      showsHorizontalScrollIndicator={false}
+      style={styles.selectorContainer}
+      contentContainerStyle={styles.selectorContent}
+    >
+      {Object.values(PERIODS).map((period) => (
+        <TouchableOpacity
+          key={period}
           style={[
-            styles.emptyContainer,
+            styles.selectorButton,
             {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }]
+              backgroundColor: selectedPeriod === period ? colors.primary : colors.card,
+              borderColor: colors.border,
             }
           ]}
+          onPress={() => setSelectedPeriod(period)}
         >
+          <Text style={[
+            styles.selectorButtonText,
+            { 
+              color: selectedPeriod === period ? '#fff' : colors.textSecondary 
+            }
+          ]}>
+            {getPeriodLabel(period)}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+  ), [selectedPeriod, colors, getPeriodLabel]);
+
+  const renderChartTypeSelector = useMemo(() => (
+    <ScrollView 
+      horizontal 
+      showsHorizontalScrollIndicator={false}
+      style={styles.selectorContainer}
+      contentContainerStyle={styles.selectorContent}
+    >
+      {Object.entries(CHART_TYPES).map(([key, type]) => (
+        <TouchableOpacity
+          key={type}
+          style={[
+            styles.selectorButton,
+            {
+              backgroundColor: selectedChartType === type ? colors.primary : colors.card,
+              borderColor: colors.border,
+            }
+          ]}
+          onPress={() => setSelectedChartType(type)}
+        >
+          <Ionicons 
+            name={getChartTypeIcon(type)} 
+            size={16} 
+            color={selectedChartType === type ? '#fff' : colors.textSecondary} 
+          />
+          <Text style={[
+            styles.selectorButtonText,
+            { 
+              color: selectedChartType === type ? '#fff' : colors.textSecondary 
+            }
+          ]}>
+            {key.charAt(0) + key.slice(1).toLowerCase()}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+  ), [selectedChartType, colors, getChartTypeIcon]);
+
+  const renderDataTypeSelector = useMemo(() => (
+    <ScrollView 
+      horizontal 
+      showsHorizontalScrollIndicator={false}
+      style={styles.selectorContainer}
+      contentContainerStyle={styles.selectorContent}
+    >
+      {[
+        { key: 'both', label: '📈 Tous', icon: 'bar-chart' },
+        { key: 'eau', label: '💧 Eau', icon: 'water' },
+        { key: 'electricite', label: '⚡ Électricité', icon: 'flash' }
+      ].map((type) => (
+        <TouchableOpacity
+          key={type.key}
+          style={[
+            styles.selectorButton,
+            {
+              backgroundColor: selectedDataType === type.key ? colors.primary : colors.card,
+              borderColor: colors.border,
+            }
+          ]}
+          onPress={() => setSelectedDataType(type.key)}
+        >
+          <Ionicons 
+            name={type.icon} 
+            size={16} 
+            color={selectedDataType === type.key ? '#fff' : colors.textSecondary} 
+          />
+          <Text style={[
+            styles.selectorButtonText,
+            { 
+              color: selectedDataType === type.key ? '#fff' : colors.textSecondary 
+            }
+          ]}>
+            {type.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+  ), [selectedDataType, colors]);
+
+  // Rendu des graphiques mémoizé
+  const renderCharts = useMemo(() => {
+    if (!hasData) {
+      return (
+        <View style={[styles.emptyContainer, { backgroundColor: colors.background }]}>
           <Ionicons name="bar-chart-outline" size={64} color={colors.textSecondary} />
           <Text style={[styles.emptyTitle, { color: colors.text }]}>
             Aucune donnée disponible
           </Text>
           <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-            Commencez par ajouter des relevés pour visualiser vos graphiques de consommation
+            Commencez par ajouter des relevés pour visualiser vos graphiques
           </Text>
-          <AppButton 
-            title="➕ Premier relevé" 
-            onPress={() => console.log("Navigate to add")}
-            variant="success"
-            style={styles.emptyButton}
-            size="large"
-          />
-        </Animated.View>
+        </View>
       );
     }
 
-    return (
-      <Animated.View style={[styles.chartsContainer, { opacity: fadeAnim }]}>
-        <ScrollView 
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={[colors.primary]}
-              tintColor={colors.primary}
-            />
-          }
-        >
-          {dataEau.length > 0 && (
-            <View style={styles.chartSection}>
-              <ChartContainer
-                data={dataEau}
-                type={chartType}
-                title="💧 Consommation d'Eau"
-                onDataPointClick={handleDataPointClick}
-                colors={["#007AFF", "#5AC8FA", "#34C759", "#64D2FF"]}
-              />
-            </View>
-          )}
+    const renderBasicChart = (data, type, title, color) => {
+      const chartProps = {
+        data,
+        title,
+        color,
+        height: 240,
+        showValues: true
+      };
 
-          {dataElectricite.length > 0 && (
-            <View style={styles.chartSection}>
-              <ChartContainer
-                data={dataElectricite}
-                type={chartType}
-                title="⚡ Consommation d'Électricité"
-                onDataPointClick={handleDataPointClick}
-                colors={["#FF9500", "#FF3B30", "#FFD60A", "#FF9F0A"]}
-              />
-            </View>
-          )}
+      let chartComponent;
+      switch (selectedChartType) {
+        case CHART_TYPES.LINE:
+          chartComponent = <CustomLineChart {...chartProps} />;
+          break;
+        case CHART_TYPES.BAR:
+          chartComponent = <CustomBarChart {...chartProps} />;
+          break;
+        case CHART_TYPES.PIE:
+          chartComponent = <CustomPieChart {...chartProps} />;
+          break;
+        default:
+          return null;
+      }
 
-          {/* Section d'analyse */}
-          <View style={[styles.analysisContainer, { backgroundColor: colors.card }]}>
-            <Text style={[styles.analysisTitle, { color: colors.text }]}>
-              📈 Analyse des données
-            </Text>
-            <Text style={[styles.analysisText, { color: colors.textSecondary }]}>
-              {analysisMessage}
-            </Text>
-          </View>
-        </ScrollView>
-      </Animated.View>
-    );
-  }, [
-    hasData, dataEau, dataElectricite, chartType, colors, 
-    fadeAnim, slideAnim, refreshing, onRefresh, 
-    handleDataPointClick, analysisMessage
-  ]);
-
-  // Rendu du tooltip mémoizé
-  const renderTooltipContent = useMemo(() => {
-    if (!tooltip.point) return null;
-
-    return (
-      <View style={styles.tooltipContent}>
-        <View style={[styles.tooltipHeader, { backgroundColor: colors.primary + '15' }]}>
-          <Ionicons 
-            name={tooltip.point.type === "Eau" ? "water" : "flash"} 
-            size={24} 
-            color={colors.primary} 
+      return (
+        <View key={type} style={styles.chartSection}>
+          <ChartExport
+            chartComponent={chartComponent}
+            chartTitle={`${title} - ${getPeriodLabel(selectedPeriod)}`}
+            fileName={`${type.toLowerCase()}_${selectedChartType}`}
+            onExportStart={() => console.log(`Export ${type}...`)}
+            onExportSuccess={(message) => console.log(`Export ${type} réussi:`, message)}
+            onExportError={(error) => console.error(`Erreur export ${type}:`, error)}
           />
-          <Text style={[styles.tooltipType, { color: colors.primary }]}>
-            {tooltip.point.type || "Donnée"}
-          </Text>
         </View>
-        
-        <View style={styles.tooltipRows}>
-          <View style={styles.tooltipRow}>
-            <Text style={[styles.tooltipLabel, { color: colors.text }]}>Valeur :</Text>
-            <Text style={[styles.tooltipValue, { color: colors.primary }]}>
-              {tooltip.point.value} {tooltip.point.type === "Eau" ? "L" : "kWh"}
-            </Text>
-          </View>
-          <View style={styles.tooltipRow}>
-            <Text style={[styles.tooltipLabel, { color: colors.text }]}>Date :</Text>
-            <Text style={[styles.tooltipValue, { color: colors.text }]}>
-              {tooltip.point.label}
-            </Text>
-          </View>
+      );
+    };
+
+    const renderAdvancedChart = (data, type, title, colors) => (
+      <View key={type} style={styles.chartSection}>
+        <AdvancedChartContainer
+          data={data}
+          title={title}
+          type={type}
+          colors={colors}
+        />
+        <View style={styles.exportButtonContainer}>
+          <AppButton
+            title="Exporter l'analyse"
+            onPress={() => handleExportChart(
+              <AdvancedChartContainer
+                data={data}
+                title={title}
+                type={type}
+                colors={colors}
+              />,
+              `${title} - Analyse complète`
+            )}
+            variant="outline"
+            size="small"
+            icon="download-outline"
+          />
         </View>
       </View>
     );
-  }, [tooltip.point, colors]);
+
+    const charts = [];
+
+    if (selectedDataType === 'both' || selectedDataType === 'eau') {
+      if (filteredDataEau.length > 0) {
+        if (selectedChartType === CHART_TYPES.ADVANCED) {
+          charts.push(renderAdvancedChart(
+            filteredDataEau, 
+            'Eau', 
+            'Analyse détaillée - Eau', 
+            ["#007AFF", "#5AC8FA", "#34C759", "#64D2FF"]
+          ));
+        } else {
+          charts.push(renderBasicChart(
+            filteredDataEau,
+            'Eau',
+            'Consommation d\'Eau',
+            '#007AFF'
+          ));
+        }
+      }
+    }
+
+    if (selectedDataType === 'both' || selectedDataType === 'electricite') {
+      if (filteredDataElectricite.length > 0) {
+        if (selectedChartType === CHART_TYPES.ADVANCED) {
+          charts.push(renderAdvancedChart(
+            filteredDataElectricite, 
+            'Électricité', 
+            'Analyse détaillée - Électricité', 
+            ["#FF9500", "#FF3B30", "#FFD60A", "#FF9F0A"]
+          ));
+        } else {
+          charts.push(renderBasicChart(
+            filteredDataElectricite,
+            'Électricité',
+            'Consommation d\'Électricité',
+            '#FF9500'
+          ));
+        }
+      }
+    }
+
+    return charts;
+  }, [
+    hasData, colors, selectedChartType, selectedDataType, selectedPeriod,
+    filteredDataEau, filteredDataElectricite, handleExportChart, getPeriodLabel
+  ]);
 
   if (loading) {
     return <LoadingScreen message="Chargement des graphiques..." />;
@@ -332,23 +423,15 @@ export default function Graphiques() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header animé */}
-      <Animated.View 
-        style={[
-          styles.header,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}
-      >
+      {/* Header */}
+      <View style={[styles.header, { backgroundColor: colors.card }]}>
         <View style={styles.headerContent}>
           <View style={styles.headerText}>
             <Text style={[styles.title, { color: colors.text }]}>
-              Analyse des Consommations
+              📊 Graphiques Avancés
             </Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              Visualisez vos données d'eau et d'électricité
+              {totalReleves} relevé(s) - Visualisations interactives
             </Text>
           </View>
           
@@ -356,57 +439,117 @@ export default function Graphiques() {
             title="Actualiser" 
             onPress={handleRefresh}
             variant="secondary"
-            style={styles.refreshButton}
             size="small"
             loading={refreshing}
+            icon="refresh-outline"
           />
         </View>
 
-        {renderStats}
-      </Animated.View>
+        {/* Sélecteurs */}
+        <View style={styles.selectorsContainer}>
+          <Text style={[styles.selectorLabel, { color: colors.text }]}>Période:</Text>
+          {renderPeriodSelector}
+          
+          <Text style={[styles.selectorLabel, { color: colors.text }]}>Type de graphique:</Text>
+          {renderChartTypeSelector}
+          
+          <Text style={[styles.selectorLabel, { color: colors.text }]}>Données:</Text>
+          {renderDataTypeSelector}
+        </View>
 
-      {/* Sélecteur de graphique */}
-      <Animated.View 
-        style={[
-          styles.selectorContainer,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}
+        {/* Stats rapides */}
+        {hasData && (
+          <View style={[styles.statsContainer, { backgroundColor: colors.primary + '15' }]}>
+            <View style={styles.statItem}>
+              <Ionicons name="water-outline" size={16} color={colors.primary} />
+              <Text style={[styles.statNumber, { color: colors.primary }]}>
+                {dataEau.length}
+              </Text>
+              <Text style={[styles.statLabel, { color: colors.text }]}>
+                Relevés eau
+              </Text>
+            </View>
+            
+            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+            
+            <View style={styles.statItem}>
+              <Ionicons name="flash-outline" size={16} color={colors.primary} />
+              <Text style={[styles.statNumber, { color: colors.primary }]}>
+                {dataElectricite.length}
+              </Text>
+              <Text style={[styles.statLabel, { color: colors.text }]}>
+                Relevés élec.
+              </Text>
+            </View>
+            
+            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+            
+            <View style={styles.statItem}>
+              <Ionicons name="stats-chart-outline" size={16} color={colors.primary} />
+              <Text style={[styles.statNumber, { color: colors.primary }]}>
+                {totalReleves}
+              </Text>
+              <Text style={[styles.statLabel, { color: colors.text }]}>
+                Total
+              </Text>
+            </View>
+          </View>
+        )}
+      </View>
+
+      {/* Contenu des graphiques */}
+      <ScrollView 
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
       >
-        <ChartSelector 
-          selectedType={chartType} 
-          onTypeChange={handleChartTypeChange} 
-        />
-      </Animated.View>
+        {renderCharts}
 
-      {renderChartsContent}
+        {/* Section d'information */}
+        {hasData && (
+          <View style={[styles.infoContainer, { backgroundColor: colors.card }]}>
+            <Text style={[styles.infoTitle, { color: colors.text }]}>
+              💡 Conseils d'utilisation
+            </Text>
+            <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+              • <Text style={{ fontWeight: '600' }}>Graphique avancé</Text> : Analyse complète avec statistiques détaillées{'\n'}
+              • <Text style={{ fontWeight: '600' }}>Ligne</Text> : Évolution dans le temps{'\n'}
+              • <Text style={{ fontWeight: '600' }}>Barres</Text> : Comparaison mensuelle{'\n'}
+              • <Text style={{ fontWeight: '600' }}>Circulaire</Text> : Répartition par type{'\n'}
+              • Utilisez le bouton "Exporter" pour sauvegarder ou partager vos graphiques
+            </Text>
+          </View>
+        )}
+      </ScrollView>
 
-      {/* Modal de détails */}
+      {/* Modal d'export */}
       <BaseModal
-        visible={tooltip.visible}
-        onClose={closeTooltip}
-        title="📊 Détails du point de données"
+        visible={exportModal.visible}
+        onClose={closeExportModal}
+        title="📤 Exporter le graphique"
+        size="large"
       >
-        {renderTooltipContent}
-      </BaseModal>
-
-      {/* Affichage d'erreur */}
-      {error && (
-        <View style={[styles.errorBanner, { backgroundColor: colors.error + '20' }]}>
-          <Ionicons name="warning-outline" size={20} color={colors.error} />
-          <Text style={[styles.errorText, { color: colors.error }]}>
-            {error}
-          </Text>
-          <AppButton 
-            title="Réessayer" 
-            onPress={loadData}
-            variant="error"
-            size="small"
+        {exportModal.chart && (
+          <ChartExport
+            chartComponent={exportModal.chart}
+            chartTitle={exportModal.title}
+            fileName={`export_${Date.now()}`}
+            onExportStart={() => console.log('Début export...')}
+            onExportSuccess={(message) => {
+              console.log('Export réussi:', message);
+              closeExportModal();
+            }}
+            onExportError={(error) => console.error('Erreur export:', error)}
           />
-        </View>
-      )}
+        )}
+      </BaseModal>
     </View>
   );
 }
@@ -419,6 +562,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 15,
     paddingBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   headerContent: {
     flexDirection: 'row',
@@ -439,35 +587,51 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 20,
   },
-  refreshButton: {
-    paddingVertical: 3,
-    paddingHorizontal: 4,
+  selectorsContainer: {
+    gap: 12,
+    marginBottom: 16,
+  },
+  selectorLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  selectorContainer: {
+    backgroundColor: 'transparent',
+  },
+  selectorContent: {
+    gap: 8,
+  },
+  selectorButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  selectorButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   statsContainer: {
     flexDirection: "row",
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    borderRadius: 12,
+    padding: 12,
   },
   statItem: {
     flex: 1,
     alignItems: 'center',
   },
   statNumber: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "bold",
     marginTop: 4,
     marginBottom: 2,
   },
   statLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "500",
     textAlign: 'center',
   },
@@ -475,25 +639,15 @@ const styles = StyleSheet.create({
     width: 1,
     marginHorizontal: 8,
   },
-  selectorContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 16,
-  },
-  chartsContainer: {
-    flex: 1,
-  },
   scrollView: {
     flex: 1,
-  },
-  chartSection: {
-    marginBottom: 20,
-    paddingHorizontal: 20,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
+    paddingTop: 60,
   },
   emptyTitle: {
     fontSize: 20,
@@ -506,83 +660,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
-    marginBottom: 24,
   },
-  emptyButton: {
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+  chartSection: {
+    marginBottom: 20,
+    paddingHorizontal: 8,
   },
-  analysisContainer: {
-    margin: 10,
+  exportButtonContainer: {
+    paddingHorizontal: 16,
+    marginTop: 8,
+  },
+  infoContainer: {
+    margin: 16,
     borderRadius: 16,
-    padding: 5,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
   },
-  analysisTitle: {
+  infoTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 8,
   },
-  analysisText: {
+  infoText: {
     fontSize: 13,
-    lineHeight: 18,
-  },
-  tooltipContent: {
-    width: '100%',
-  },
-  tooltipHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 16,
-    gap: 8,
-  },
-  tooltipType: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  tooltipRows: {
-    gap: 12,
-  },
-  tooltipRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-  },
-  tooltipLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  tooltipValue: {
-    fontSize: 15,
-    fontWeight: 'bold',
-  },
-  errorBanner: {
-    position: 'absolute',
-    top: 100,
-    left: 20,
-    right: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 12,
-    gap: 8,
-  },
-  errorText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '500',
+    lineHeight: 20,
   },
 });
